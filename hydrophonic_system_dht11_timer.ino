@@ -5,6 +5,7 @@
 #define DHTPIN 13
 #define DHTTYPE DHT11
 
+void(* resetFunc) (void) = 0;
 
 LiquidCrystal_I2C lcd(0x27, 16, 2); // I2C address 0x27, 16 column and 2 rows
 DHT dht(DHTPIN, DHTTYPE);
@@ -15,16 +16,18 @@ const int SENSOR_PIN = 13; // Arduino pin connected to DS18B20 sensor's DQ pin
 
 // variable to store previous time
 unsigned long relayPreviousMillis = 0; 
-unsigned long tempsensorPreviousMillis = 0;
-unsigned long humidsensorPreviousMillis = 0;
+unsigned long sensorPreviousMillis = 0;
+unsigned long resetPreviousMillis = 0;
 
 // intervals for millis() ; convert time to milliseconds
 const long onInterval = 60000;        // turn on for # minutes
-const long offInterval = 120000;      // turn off for # minutes
-const long tempsensorInterval = 2000; // read temp for # seconds
-const long humidsensorInterval = 4000; // read temp for # seconds
+const long offInterval = 300000;      // turn off for # minutes
+const long sensorInterval = 2000; // read temp for # seconds
+const long resetInterval = 720000;  // reset for # minute
+
 
 bool relayState = true;
+bool sensorState = false;
 
 void setup() {
   // Setup Serial for debugging
@@ -44,11 +47,14 @@ void setup() {
   lcd.setCursor(0, 1);       // start to print at the first row
   lcd.print("Program");
   Serial.println("Initializing Program"); // Serial Debugging
-  delay(5000);
+  delay(2000);
   lcd.clear(); // Clear Display
 }
 
 void loop() {
+  float tempC = dht.readTemperature(); // read temperature
+  float humi  = dht.readHumidity();    // read humidity
+
   unsigned long currentMillis = millis();
 
   // Calculate remaining time for the current state (on or off)
@@ -96,11 +102,10 @@ void loop() {
     lcd.print("                ");
     Serial.println("Pump OFF");   // For debugging
   }
-
   /* Temperature Sensor */
-  else if (currentMillis - tempsensorPreviousMillis >= tempsensorInterval) {
+  if (!sensorState && currentMillis - sensorPreviousMillis >= sensorInterval) {
+    sensorState = true;
     // Print temperature sensor data on LCD
-    float tempC = dht.readTemperature(); // read temperature
     lcd.setCursor(0,1);           // clear line 1
     lcd.print("                ");
   // check if any reads failed
@@ -113,16 +118,18 @@ void loop() {
     lcd.print(tempC);     // print the temperature
     lcd.print((char)223); // print ° character
     lcd.print("C");
-    tempsensorPreviousMillis = currentMillis; // Save the last time temperature sensor was toggled
+    Serial.print("Temperature: ");   // For debugging
+    Serial.print(humi);
+    Serial.println("°C");
+    sensorPreviousMillis = currentMillis; // Save the last time temperature sensor was toggled
     }
   }
-  /* Humiod Sensor */
-  else if (currentMillis - humidsensorPreviousMillis >= humidsensorInterval) {
+  /* Humid Sensor */
+  else if (sensorState &&currentMillis - sensorPreviousMillis >= sensorInterval) {
+    sensorState = false;
     // Print humid sensor data on LCD
-    float tempC = dht.readTemperature(); // read temperature
     lcd.setCursor(0,1);           // clear line 1
     lcd.print("                ");
-    float humi  = dht.readHumidity();    // read humidity
   // check if any reads failed
   if (isnan(humi)) {
     lcd.setCursor(0, 1);
@@ -132,9 +139,19 @@ void loop() {
     lcd.print("Humi: ");
     lcd.print(humi);      // print the humidity
     lcd.print("%");
-    humidsensorPreviousMillis = currentMillis; // Save the last time temperature sensor was toggled
+    Serial.print("Humidity: ");   // For debugging
+    Serial.print(humi);
+    Serial.println("%");
+    sensorPreviousMillis = currentMillis; // Save the last time temperature sensor was toggled
     }
   }
+
+  // reset # minute
+  if (currentMillis - resetPreviousMillis >= resetInterval) {
+    resetFunc();
+    resetPreviousMillis = currentMillis;
+  }
+
 }
 
 // Function to format milliseconds into MM:SS format
